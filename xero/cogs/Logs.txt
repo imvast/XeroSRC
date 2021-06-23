@@ -1,0 +1,107 @@
+# IMPORTS #
+import discord, datetime, pymongo, os
+from settings import *
+from discord.ext import commands
+from discord_webhook import DiscordWebhook, DiscordEmbed
+
+# MongoDB Setup
+mongoClient = pymongo.MongoClient(os.environ.get('BOT_DB'))
+db = mongoClient.get_database("XeroBOT").get_collection("servers+id")
+db2 = mongoClient['XeroBOT']
+limits = db2['limits']
+gjoins = db2['gannouncements']
+blacklist = db2['blacklist']
+
+def blacklist_check():
+    def predicate(ctx):
+        author_id = ctx.author.id
+        if blacklist.find_one({'user_id': author_id}):
+            return False
+        return True
+    return commands.check(predicate)
+    
+
+class Logs(commands.Cog):
+    def __init__(self, client, db):
+        self.client = client
+        self.db = db
+    
+
+@commands.Cog.listener()
+async def on_member_ban(self, member, error):
+  limit = limits.find_one({ "guild_id": member.guild.id })['ban_limit']
+  logschannel = discord.utils.get(member.guild.channels, name="xero-logs")
+  logs = await member.guild.audit_logs(limit=limit, action=discord.AuditLogAction.ban).flatten()
+  logs = logs[0]
+  try:
+    embed = discord.Embed(
+      title=f"{member} Was Banned.", 
+      description=f"Banned By: {logs.user.name}"
+    )
+    await logschannel.send(embed=embed)
+  except:
+    raise error
+
+
+@commands.Cog.listener()
+async def on_member_kick(self, member, error):
+  limit = limits.find_one({ "guild_id": member.guild.id })['kick_limit']
+  logschannel = discord.utils.get(member.guild.channels, name="xero-logs")
+  async for i in member.guild.audit_logs(limit=limit, after=datetime.datetime.now() - datetime.timedelta(minutes = 2), action=discord.AuditLogAction.kick):
+    try:
+      embed = discord.Embed(
+        title=f"{member} Was Kicked.", 
+        description=f"Kicked By: {i.user.name}"
+      )
+      await logschannel.send(embed=embed)
+    except:
+      raise error
+
+
+@commands.Cog.listener()
+async def on_channel_create(self, channel, error):
+  logschannel = discord.utils.get(channel.guild.channels, name="xero-logs")
+  limit = limits.find_one({ "guild_id": channel.guild.id })['chancreate_limit']
+  async for i in channel.guild.audit_logs(limit=limit, after=datetime.datetime.now() - datetime.timedelta(minutes = 2), action=discord.AuditLogAction.channel_create):
+    try:
+      embed = discord.Embed(
+        title=f"{i.user.name} Created A Channel.", 
+        description=f"Channel: "
+      )
+      await logschannel.send(embed=embed)
+    except:
+      raise error
+
+
+@commands.Cog.listener()
+async def on_channel_delete(self, channel, error):
+  logschannel = discord.utils.get(channel.guild.channels, name="xero-logs")
+  limit = limits.find_one({ "guild_id": channel.guild.id })['chandelete_limit']
+  async for i in channel.guild.audit_logs(limit=limit, after=datetime.datetime.now() - datetime.timedelta(minutes = 2), action=discord.AuditLogAction.channel_delete):
+    try:
+      embed = discord.Embed(
+        title=f"{i.user.name} Deleted A Channel.", 
+        description=f"Channel: {i.channel}"
+      )
+      await logschannel.send(embed=embed)
+    except:
+      raise error
+
+
+@commands.Cog.listener()
+async def on_webhooks_update(self, channel, error):
+  logschannel = discord.utils.get(channel.guild.channels, name="xero-logs")
+  limit = limits.find_one({ "guild_id": channel.guild.id })['webhook_limit']
+  async for i in channel.guild.audit_logs(limit=limit, after=datetime.datetime.now() - datetime.timedelta(minutes = 2), action=discord.AuditLogAction.webhook_create):
+    try:
+      embed = discord.Embed(
+        title=f"{i.user.name} Created A Webhook.", 
+        description=f"Channel: "
+      )
+      await logschannel.send(embed=embed)
+    except:
+      raise error
+
+
+def setup(client):
+    client.add_cog(Logs(client))
